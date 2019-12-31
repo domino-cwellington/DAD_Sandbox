@@ -1,0 +1,109 @@
+FROM ubuntu:18.04
+
+USER root
+
+ENV DEBIAN_FRONTEND noninteractive
+
+#create a Ubuntu User
+RUN \
+  groupadd -g 12574 ubuntu && \
+  useradd -u 12574 -g 12574 -m -N -s /bin/bash ubuntu && \
+
+  # UPDATE, UPGRADE, ADD repositories
+  apt-get update -y && \
+  apt-get -y install software-properties-common && \
+  add-apt-repository ppa:openjdk-r/ppa && \
+  apt-get update -y && \
+  apt-get -y upgrade && \
+  # CONFIGURE locales
+  apt-get install -y locales && \
+  locale-gen en_US.UTF-8 && \
+  dpkg-reconfigure locales && \
+  # INSTALL common
+  apt-get -y install build-essential wget sudo curl apt-utils net-tools libzmq3-dev ed git openssh-server iputils-ping dnsutils && \
+ apt-get install openjdk-8-jdk -y && \
+  update-alternatives --config java && \
+  apt-get install vim nano -y && \
+  apt-get install apt-transport-https -y && \
+  # ADD SSH start script
+  mkdir -p /scripts && \
+  printf "#!/bin/bash\\nservice ssh start\\n" > /scripts/start-ssh && \
+  chmod +x /scripts/start-ssh && \
+  echo 'export PYTHONIOENCODING=utf-8' >> /home/ubuntu/.domino-defaults && \
+  echo 'export LANG=en_US.UTF-8' >> /home/ubuntu/.domino-defaults && \
+  echo 'export JOBLIB_TEMP_FOLDER=/tmp' >> /home/ubuntu/.domino-defaults && \
+  echo 'export LC_ALL=en_US.UTF-8' >> /home/ubuntu/.domino-defaults && \
+  locale-gen en_US.UTF-8 && \
+  export LANG=en_US.UTF-8
+    
+ENV LANG en_US.UTF-8
+
+
+#Jupyter dependencies
+RUN apt-get install -y libzmq3-dev pandoc pandoc-citeproc libssl-dev libsqlite3-dev && \
+apt-get install zlib1g-dev && \
+apt-get install python-setuptools -y && \
+apt-get install python-tk -y
+
+
+RUN cd /tmp && \
+wget -q https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tgz && \
+tar -xzf Python-3.6.8.tgz && \
+cd Python-3.6.8 && ./configure && make && make install && rm -rf /tmp/*
+
+
+#set python version
+RUN rm /usr/bin/python && \
+ln -s /usr/local/bin/python3 /usr/bin/python
+RUN cd /tmp && curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py
+
+  
+#install R
+RUN \ 
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E298A3A825C0D65DFD57CBB651716619E084DAB9 && \
+add-apt-repository 'deb https://cloud.r-project.org/bin/linux/ubuntu bionic-cran35/' && \
+apt-get update -y && \
+apt-get install r-base-core r-base --force-yes -y
+
+#   # INSTALL R packages dependencies
+RUN \
+ apt-get -y install libssl-dev libxml2-dev libxt-dev libssh2-1-dev libcurl4-openssl-dev && \
+
+
+ # INSTALL R packages required by Domino
+R -e 'options(repos=structure(c(CRAN="http://cran.us.r-project.org"))); install.packages(c( "devtools", "stringi", "httpuv","RJSONIO", "Cairo", "jsonlite"))' && \
+cd /tmp && wget http://cran.us.r-project.org/src/contrib/Archive/plumber/plumber_0.3.2.tar.gz && R CMD INSTALL plumber_0.3.2.tar.gz && rm /tmp/plumber_0.3.2.tar.gz && \
+
+## SET ownership to ubuntu user
+ 
+ chown -R ubuntu:ubuntu /home/ubuntu && \
+ chown -R ubuntu:ubuntu /usr/local/lib/R/site-library
+  
+# INSTALL pip libraries for Model Manager
+RUN pip install --upgrade urllib3 certifi==2015.4.28 flask==0.12 jsonify==0.5 uwsgi tornado matplotlib
+
+#### Installing Notebooks,Workspaces,IDEs,etc ####
+
+
+#Clone in workspaces install scripts
+RUN mkdir -p /var/opt/workspaces && \
+cd /tmp && wget -q https://github.com/domino-cwellington/workspaces_sandbox/archive/master.zip && unzip master.zip  && cp -Rf workspaces_sandbox-master/. /var/opt/workspaces && \
+rm -rf /var/opt/workspaces/workspace-logos && rm -rf /tmp/workspaces_sandbox-master
+
+#add update .Rprofile with Domino customizations
+RUN \
+ mv /var/opt/workspaces/rstudio/.Rprofile /home/ubuntu/.Rprofile && \
+chown ubuntu:ubuntu /home/ubuntu/.Rprofile
+
+# # # #Install Rstudio from workspaces
+RUN chmod +x /var/opt/workspaces/rstudio/install
+RUN /var/opt/workspaces/rstudio/install
+
+ 
+# # #Install Jupyter from workspaces
+RUN chmod +x /var/opt/workspaces/jupyter/install
+RUN /var/opt/workspaces/jupyter/install
+
+
+#Provide Sudo in container
+RUN echo "ubuntu    ALL=NOPASSWD: ALL" >> /etc/sudoers
